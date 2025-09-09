@@ -8,30 +8,41 @@
 <style>
   body { font-family: sans-serif; padding: 20px; }
   #output { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 20px; }
-  .crop { border: 1px solid #ccc; padding: 5px; }
+  .crop-container { border: 1px solid #ccc; padding: 10px; margin-bottom: 20px; }
+  .crop { border: 1px solid #aaa; padding: 5px; margin: 5px; display: inline-block; }
   canvas { max-width: 200px; }
 </style>
 </head>
 <body>
 
-<h2>Upload Screenshot to Crop Images</h2>
-<input type="file" id="fileInput" accept="image/*">
+<h2>Upload Screenshot(s) to Crop Images</h2>
+<input type="file" id="fileInput" accept="image/*" multiple>
 <div id="output"></div>
 
 <script>
 document.getElementById('fileInput').addEventListener('change', async function(e){
-  const file = e.target.files[0];
-  if(!file) return;
+  const files = e.target.files;
+  if(!files || files.length === 0) return;
 
-  const img = new Image();
-  img.src = URL.createObjectURL(file);
-  img.onload = async function(){
-    // Wait for OpenCV to load
-    cv['onRuntimeInitialized']=()=>runSmartCrop(img);
+  const outputDiv = document.getElementById('output');
+  outputDiv.innerHTML = '';
+
+  for(let file of files){
+    const img = new Image();
+    img.src = URL.createObjectURL(file);
+    await new Promise(resolve => {
+      img.onload = () => {
+        // Wait for OpenCV to load
+        cv['onRuntimeInitialized'] = () => {
+          runSmartCrop(img, file.name);
+          resolve();
+        };
+      }
+    });
   }
 });
 
-function runSmartCrop(img){
+function runSmartCrop(img, filename){
   const mat = cv.imread(img);
   let gray = new cv.Mat();
   cv.cvtColor(mat, gray, cv.COLOR_RGBA2GRAY, 0);
@@ -47,7 +58,12 @@ function runSmartCrop(img){
   cv.findContours(edges, contours, hierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
 
   const outputDiv = document.getElementById('output');
-  outputDiv.innerHTML = '';
+
+  const container = document.createElement('div');
+  container.className = 'crop-container';
+  const title = document.createElement('h3');
+  title.innerText = `Crops from: ${filename}`;
+  container.appendChild(title);
 
   for(let i=0; i<contours.size(); i++){
     let cnt = contours.get(i);
@@ -64,16 +80,18 @@ function runSmartCrop(img){
     // Download button
     const a = document.createElement('a');
     a.href = canvas.toDataURL('image/png');
-    a.download = `crop_${i+1}.png`;
+    a.download = `${filename}_crop_${i+1}.png`;
     a.innerText = 'Download';
     a.style.display = 'block';
     a.style.textAlign = 'center';
     a.style.marginTop = '5px';
     div.appendChild(a);
 
-    outputDiv.appendChild(div);
+    container.appendChild(div);
     crop.delete();
   }
+
+  outputDiv.appendChild(container);
 
   mat.delete(); gray.delete(); blur.delete(); edges.delete(); contours.delete(); hierarchy.delete();
 }
